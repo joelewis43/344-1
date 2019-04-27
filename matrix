@@ -1,0 +1,289 @@
+#!/bin/bash
+# 
+# 
+# 
+# Error Codes:
+#  ERR1: Unknown command
+#  ERR2: No parameters
+#  ERR3: Too many parameters
+#  ERR4: Missmatched matrix dimensions
+
+check_no_params () {
+
+   # make sure parameters were provided
+   if [ "$#" -lt 3 ]; then
+      >&2 echo "ERROR: Insufficient number of parameters"
+      exit 2
+   fi
+
+}
+
+check_params () {
+
+   # command specific check for correct
+   # number of paramters
+   if [ "$(($1 + 1))" -lt "$#" ]; then
+      >&2 echo "ERROR: Too many parameters"
+      exit 3
+   fi
+
+}
+
+get_dims () {
+   res=($(wc $1))
+   rows=${res[0]}
+   cols=$(( ${res[1]} / $rows ))
+}
+
+check_add_dims () {
+   res1=($(wc $1))
+   rows1=${res1[0]}
+   cols1=$(( ${res1[1]} / $rows1 ))
+   
+   res2=($(wc $2))
+   rows2=${res2[0]}
+   cols2=$(( ${res2[1]} / $rows2 ))
+
+   if [ $rows1 != $rows2 ]; then
+      >&2 echo "ERROR: Missmatched matrix dimensions"
+      exit 4
+   elif [ $cols1 != $cols2 ]; then
+      >&2 echo "ERROR: Missmatched matrix dimensions"
+      exit 4
+   fi
+
+}
+
+check_mult_dims () {
+
+   res1=($(wc $1))
+   rows1=${res1[0]}
+   cols1=$(( ${res1[1]} / $rows1 ))
+   
+   res2=($(wc $2))
+   rows2=${res2[0]}
+   cols2=$(( ${res2[1]} / $rows2 ))
+
+   if [ $cols1 != $rows2 ]; then
+      >&2 echo "ERROR: Missmatched matrix dimensions"
+      exit 4
+   fi
+
+}
+
+# Calculate the number of rows and columns of the inputted matrix
+dims () {
+
+   get_dims $1
+   echo "$rows $cols"
+
+}
+
+# Prints a transposed matrix
+transpose () {
+
+   # get matrix dimensions
+   get_dims $1
+
+   # cut each column from the matrix and convert to a row
+   # then append the row to a temp file
+   for ((i=1; i<=cols; i++))
+   do
+      cut -f $i $1 | tr "\n" "\t" >> tempfile
+
+      # remove the last character from tempfile
+      # which is a tab charcter
+      truncate -s-1 tempfile
+
+      echo "" >> tempfile
+   done
+
+   # print and remove the temp file
+   cat tempfile
+   rm tempfile
+   
+}
+
+# prints the mean vector of the provided matrix
+mean () {
+
+   # get dimensions
+   get_dims $1
+
+   for ((i=1; i<=cols; i++))
+   do
+
+      # grab the first column
+      cut -f $i $1 > tempfile
+
+      # sum each value of the column
+      sum=0
+      while read line
+      do  
+	 (( sum += $line ))
+      done < tempfile
+
+
+      # add/subtract # of rows / 2 for rounding
+      roundFactor=$(( $rows / 2 ))
+
+      if [ $sum -lt 0 ]; then
+	 avg=$(( ( $sum - $roundFactor ) / $rows ))
+      else
+	 avg=$(( ( $sum + $roundFactor ) / $rows ))
+      fi
+     
+      echo $avg >> meanfile
+
+   done
+
+   # convert column file to row
+   cat meanfile | tr "\n" "\t" >> printfile
+
+   # remove the last character from tempfile
+   # which is a tab charcter
+   truncate -s-1 printfile
+
+   echo "" >> printfile
+
+   # print file
+   cat printfile
+
+   # cleanup
+   rm printfile
+   rm meanfile
+   rm tempfile
+
+}
+
+add () {
+
+   # check matrix dimensions
+   check_add_dims $@
+
+   sum=0
+
+   # iterate through both matricies
+   while read -a line1 <&3 && read -a line2 <&4
+   do
+      # -a will read the line as an array
+      # both arrays will have the same length (matrix dimensions)
+
+      # iterate over the array
+      for ((i=0;i<${#line1[@]};++i)); do
+
+	 # sum the value of each array
+         sum=$(( ${line1[i]} + ${line2[i]} ))
+
+	 # append the value to a new file
+	 echo -n "$sum" >> addfile
+	 
+	 # insert a tab if not at the end of the array
+	 if (( i != $(( ${#line1[@]} - 1 )) )); then
+	    echo -ne "\t" >> addfile
+	 fi
+      done
+
+      # add a newline
+      echo "" >> addfile
+
+
+   done 3<"$1" 4<"$2"
+
+   # print the resulting array
+   cat addfile
+
+   # remove the file
+   rm addfile
+
+}
+
+multiply () {
+
+   # postcondtions
+   #	rows1 and cols1 are dims of $1
+   #	rows2 and cols2 are dims of $2
+   check_mult_dims $1 $2
+
+   # read rows from $1
+   while read -a row1; do
+
+      # read cols from $2
+      for (( i=1; i<=$cols2; ++i )); do
+
+	 # cut out the current column and store as an array
+	 currentCol=( $(cut -f $i $2) )
+	 sum=0
+
+	 # loop through the row (same length as col)
+	 for ((x=0; x<${#row1[@]}; x++)); do
+
+	    # calculate the product of the matrix indicies
+	    currentProd=$(( ${row1[x]} * ${currentCol[x]} ))
+
+	    # sum the value to be added to result file
+	    sum=$(( $currentProd + $sum ))
+
+      	 done
+
+	 # add the value to the file containing the result
+	 echo -n $sum >> multFile
+
+	 # insert a tab if not at last column
+	 if (( $i != $cols2 )); then
+	    echo -ne "\t" >> multFile
+	 fi
+
+      done
+
+      # go to next line
+      echo "" >> multFile
+
+   done < $1
+
+   # print the resulting file
+   cat multFile
+
+   # remove the file
+   rm -f multFile
+}
+
+
+
+
+
+
+
+
+# print matrix dimensions
+if [ "$1" = "dims" ]; then
+   check_params 2 $@
+   dims $2
+
+# print the transposed matrix
+elif [ "$1" = "transpose" ]; then
+   check_params 2 $@
+   transpose $2
+
+# print the mean vector
+elif [ "$1" = "mean" ]; then
+   check_params 2 $@
+   mean $2
+
+# print the sum of two matricies
+elif [ "$1" = "add" ]; then
+   check_no_params $@
+   check_params 3 $@
+   add $2 $3
+
+# print the product of two matricies
+elif [ "$1" = "multiply" ]; then
+   check_no_params $@
+   check_params 3 $@
+   multiply $2 $3
+
+else
+   >&2 echo "ERROR: Unknown command"
+   exit 1
+
+fi
